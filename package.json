@@ -1,0 +1,24 @@
+{
+  "name": "usfq-free-classrooms-script",
+  "version": "1.0.0",
+  "description": "(USFQ) - A little script to see what classrooms are available at a given time.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonstar-x-edu/usfq-free-classrooms-script.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/moonstar-x-edu/usfq-free-classrooms-script/issues"
+  },
+  "homepage": "https://github.com/moonstar-x-edu/usfq-free-classrooms-script#readme",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "set-operations": "^1.2.2"
+  }
+}
