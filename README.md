@@ -20,6 +20,8 @@ Before starting the script, you should download the course listing data:
 curl https://evaluaciones.usfq.edu.ec/banner/ssb/cursos_lista.php\?orderField\=ssbsect_subj_code\&orderAsc\=ASC\&start_search\=1\&search\=\&colegio\=\&periodo\=202210\&area\=\&campus\=\&sesion\=\&filtro_dias\=\&filtro_horario\=\&filtro_aula\=\&filtro_cursos_ingles\=false\&filtro_cursos_cupo\=false\&perfil\= >> out.html
 ```
 
+> **Make sure to download the correct listing for the current semester (most likely the `periodo` query param needs to be changed).
+
 Inside `index.js`, change the `INTERESTING_DAYS` and `INTERESTING_START_TIME` to your liking.
 
 Then finally, run the script:
