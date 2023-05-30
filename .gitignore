@@ -106,3 +106,7 @@ dist
 # Downloaded Files
 
 out.html
+
+# Config
+
+config.json

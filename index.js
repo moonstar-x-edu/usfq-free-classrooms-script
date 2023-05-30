@@ -1,10 +1,6 @@
-const fs = require('fs');
-const cheerio = require('cheerio');
+const axios = require('axios');
 const { difference } = require('set-operations');
-
-// CHANGE THIS
-const INTERESTING_DAYS = ['M', 'J']; // Can be: L, M, I, J, V
-const INTERESTING_START_TIME = '14:30'; // 24h format
+const config = require('./config.json');
 
 // More buildings exist...
 const buildingDictionary = {
@@ -34,97 +30,84 @@ const resolveBuildingName = (building) => {
   return buildingDictionary[building] ?? 'Other';
 };
 
+const getCourses = async (token, period) => {
+  const BASE_URL = 'https://wsexternal.usfq.edu.ec/WSApisUSFQ/api';
+
+  const response = await axios.post(`${BASE_URL}/Cursos`, {
+    area: '',
+    campus: '',
+    colegio: '',
+    mallas: '',
+    search: '',
+    semana: [],
+    sesion: '',
+    cursos_con_cupo: false,
+    cursos_ingles: false,
+    filtro_lunes: false,
+    filtro_martes: false,
+    filtro_miercoles: false,
+    filtro_jueves: false,
+    filtro_viernes: false,
+    filtro_sabado: false,
+    filtro_domingo: false
+  }, {
+    params: {
+      periodo: period
+    },
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+
+  return response.data;
+};
+
+const getClassroomFromCourse = (course) => {
+  if (!course.info_reunion.edificio || !course.info_reunion.aula) {
+    return null;
+  }
+
+  return `${course.info_reunion.edificio}::${course.info_reunion.aula}`;
+};
+
 const main = async () => {
-  console.log('Reading from HTML...');
-  const html = await fs.promises.readFile('./out.html'); // File should already be downloaded.
-  const $ = cheerio.load(html);
+  const courses = await getCourses(config.token, config.period);
+  console.log(`Fetched ${courses.length} courses from API.`);
 
-  console.log('Parsing all courses...');
-  const tableRows = $('table.texto tr[style="border-bottom: solid 1px #ccc;"]');
-  const courses = tableRows
-    .filter((_, row) => {
-      const cols = row.children.filter((e) => e.name === 'td');
-      const infoRows = cols[4].children[1].children[1].children.filter((e) => e.name === 'tr');
+  if (!courses.length) {
+    console.log('No courses have been found, exiting...');
+    return;
+  }
 
-      const campus = infoRows[1].children[0].children[7].children[0].data.trim();
-      const classroom = infoRows[2]?.children[3].children[0].children[2]?.data.trim();
+  const classrooms = new Set(courses.map((course) => getClassroomFromCourse(course)).filter(Boolean));
 
-      return campus === 'Cumbaya' && !!classroom; // I only care about the courses in the main campus with a classroom assigned.
-    })  
-    .map((_, row) => {
-      const cols = row.children.filter((e) => e.name === 'td');
-
-      const code = cols[2].children[0].data.trim();
-      const nrc = cols[3].children[0].data.trim();
-      const instructor = cols[6].children[2]?.data.trim();
-
-      const infoRows = cols[4].children[1].children[1].children.filter((e) => e.name === 'tr');
-
-      const name = infoRows[0].children[0].children[1].children[0].data.trim();
-      let classroom = infoRows[2]?.children[3].children[0].children[2].data.trim(); // This should be the classroom.
-      let rawSchedule = infoRows[2].children[3].children[0].children[0].data.trim(); // This should be the schedule.
-
-      // There's a chance that there's multiple schedules. (I don't care about the second one.)
-      if (!classroom.startsWith('(')) {
-        classroom = infoRows[2]?.children[3].children[0].children[4].data.trim();
-        rawSchedule = infoRows[2]?.children[3].children[0].children[2].data.trim();
-      }
-
-      const rawScheduleSplit = rawSchedule.split(' ');
-
-      // Nullish schedules show up as 00:00.
-      const schedule = rawScheduleSplit[0].startsWith('00:00') ?
-        null :
-        {
-          day: rawScheduleSplit[0],
-          time: [rawScheduleSplit[1], rawScheduleSplit[3]]
-        };
-
-      return {
-        code,
-        nrc,
-        instructor,
-        name,
-        classroom,
-        schedule
-      };
-    });
-  const classrooms = new Set(courses.filter((_, c) => !!c.classroom).map((_, c) => c.classroom));
-
-  console.log(`Parsed ${courses.length} courses with ${classrooms.size} different classrooms.`);
+  console.log(`Retrieved ${classrooms.size} different classrooms.`);
   console.log('Filtering by schedule...');
 
-  const simultaneousCourses = courses.filter((_, course) => {
-    return course.schedule &&
-      INTERESTING_DAYS.some((d) => course.schedule.day.includes(d)) &&
-      course.schedule.time[0] === INTERESTING_START_TIME;
+  const simultaneousCourses = courses.filter((course) => {
+    return config.interesting_days.some((day) => !!course.info_reunion[day]) &&
+      course.info_reunion.hora_inicio === config.interesting_start_time;
   });
 
   console.log(`Courses that happen during our schedule: ${simultaneousCourses.length}`);
 
-  const nonInterestingClassrooms = new Set(simultaneousCourses.filter((_, c) => !!c.classroom).map((_, c) => c.classroom));
+  const nonInterestingClassrooms = new Set(simultaneousCourses.map((course) => getClassroomFromCourse(course)).filter(Boolean));
   const interestingClassrooms = difference(classrooms, nonInterestingClassrooms);
 
   const cleanInterestingClassrooms = Array.from(interestingClassrooms)
-    .map((classroom) => {
-      return classroom.replace(/\(|Aula |\)/gi, ''); // Cleanup the classroom name.
-    })
     .sort((a, b) => {
       return a.localeCompare(b);
     })
     .reduce((acc, cur) => {
-      const [building, number] = cur.split('-');
+      const [building] = cur.split('::');
       const buildingName = resolveBuildingName(building);
 
-      // Classroom numbers should all have 3 digits. Classrooms that start with a 0 are generally labs.
-      if (!number || number.startsWith('0') || number.length > 3) {
-        return acc;
-      }
+      const prettyClassroomName = cur.replace('::', '-');
 
       if (acc[buildingName]) {
-        acc[buildingName].push(cur);
+        acc[buildingName].push(prettyClassroomName);
       } else {
-        acc[buildingName] = [cur];
+        acc[buildingName] = [prettyClassroomName];
       }
 
       return acc;
@@ -134,6 +117,6 @@ const main = async () => {
   relevantBuildings.forEach((building) => {
     console.log(`Classrooms in ${building}: ${cleanInterestingClassrooms[building]?.join(', ') ?? 'None'}`);
   });
-}
+};
 
 main();
